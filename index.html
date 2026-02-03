@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<!--
+============================================================================
+ИНСТРУМЕНТ ЗА АНОТИРАНЕ НА ДОКУМЕНТИ (Document Annotation Tool)
+============================================================================
+Автор: Велислав Кочев
+Факултетен номер: F113048
+Описание: Уеб базиран инструмент за анотиране на документи с етикети,
+          връзки между етикети, йерархична структура и статистика.
+Технологии: HTML5, CSS3, JavaScript (ES6+)
+Съхранение: LocalStorage
+============================================================================
+-->
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Инструмент за анотиране на документи</title>
+    
+    <!-- Библиотеки за обработка на DOCX и PDF файлове -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Настройка на PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    
+    <style>
+        /* === ОСНОВНИ ПРОМЕНЛИВИ === */
+        :root {
+            --primary: #2196F3;
+            --primary-dark: #1976D2;
+            --success: #4CAF50;
+            --danger: #f44336;
+            --warning: #ff9800;
+            --bg: #f5f5f5;
+            --sidebar-bg: #263238;
+            --card-bg: #ffffff;
+            --text: #333333;
+            --border: #e0e0e0;
+            --sidebar-width: 280px;
+            --header-height: 60px;
+            --radius: 8px;
+        }
+
+        /* === RESET === */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* === HEADER === */
+        .header {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: var(--header-height);
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+
+        .header h1 { font-size: 1.3rem; display: flex; align-items: center; gap: 10px; }
+        .header-actions { display: flex; gap: 10px; }
+        
+        .header-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s;
+        }
+        
+        .header-btn.primary { background: white; color: var(--primary); }
+        .header-btn.primary:hover { background: #e3f2fd; }
+        .header-btn.secondary { background: rgba(255,255,255,0.2); color: white; }
+        .header-btn.secondary:hover { background: rgba(255,255,255,0.3); }
+
+        /* === LAYOUT === */
+        .main-container {
+            display: flex;
+            margin-top: var(--header-height);
+            min-height: calc(100vh - var(--header-height));
+        }
+
+        /* === SIDEBAR === */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--sidebar-bg);
+            color: #eceff1;
+            padding: 20px;
+            position: fixed;
+            left: 0;
+            top: var(--header-height);
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 900;
+        }
+
+        .sidebar-section { margin-bottom: 25px; }
+        
+        .sidebar-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: #90a4ae;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .sidebar-title button {
+            background: var(--primary);
+            border: none;
+            color: white;
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .label-list { list-style: none; }
+        
+        .label-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .label-item:hover { background: rgba(255,255,255,0.1); }
+        .label-item.selected { background: rgba(255,255,255,0.15); box-shadow: inset 3px 0 0 var(--primary); }
+        
+        .label-color {
+            width: 16px; height: 16px;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        
+        .label-name { flex-grow: 1; font-size: 0.95rem; }
+        
+        .label-count {
+            background: rgba(255,255,255,0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+        }
+        
+        .label-actions { display: none; gap: 4px; margin-left: 8px; }
+        .label-item:hover .label-actions { display: flex; }
+        
+        .label-action-btn {
+            background: none;
+            border: none;
+            color: #90a4ae;
+            cursor: pointer;
+            padding: 2px;
+        }
+        .label-action-btn:hover { color: white; }
+        .label-action-btn.delete:hover { color: var(--danger); }
+        
+        .label-children {
+            margin-left: 20px;
+            border-left: 2px solid rgba(255,255,255,0.1);
+            padding-left: 10px;
+            margin-top: 6px;
+        }
+
+        /* === CONTENT === */
+        .content-area {
+            flex-grow: 1;
+            margin-left: var(--sidebar-width);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* === TABS === */
+        .tabs {
+            display: flex;
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            flex-wrap: wrap;
+        }
+        
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 0.95rem;
+            color: #666;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn:hover { background: #f5f5f5; }
+        .tab-btn.active { background: var(--primary); color: white; }
+
+        /* === CARDS === */
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .card-header {
+            padding: 15px 20px;
+            background: #fafafa;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .card-title { font-size: 1.1rem; font-weight: 600; }
+        .card-body { padding: 20px; }
+
+        /* === TAB CONTAINERS === */
+        .tab-container { display: none; }
+        .tab-container.active { display: block; }
+
+        /* === EDITOR === */
+        .editor-toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 15px 20px;
+            background: #fafafa;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .toolbar-btn {
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+            background: white;
+            border-radius: var(--radius);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s;
+        }
+        
+        .toolbar-btn:hover { background: #f5f5f5; }
+
+        .text-editor {
+            min-height: 400px;
+            padding: 20px;
+            font-size: 1rem;
+            line-height: 1.8;
+            border: none;
+            outline: none;
+        }
+        
+        .text-editor:focus { box-shadow: inset 0 0 0 2px var(--primary); }
+
+        /* === ANNOTATIONS === */
+        .annotation {
+            padding: 2px 4px;
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .annotation:hover { filter: brightness(0.95); }
+        
+        .annotation-tooltip {
+            position: absolute;
+            bottom: calc(100% + 5px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            z-index: 100;
+        }
+        
+        .annotation:hover .annotation-tooltip { opacity: 1; visibility: visible; }
+
+        /* === BUTTONS === */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 0.95rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-secondary { background: #e0e0e0; color: #333; }
+
+        /* === FORMS === */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 15px;
+        }
+        
+        .form-group label { font-size: 0.85rem; color: #666; font-weight: 500; }
+        
+        .form-group select,
+        .form-group input,
+        .form-group textarea {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 0.95rem;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group select:focus,
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* === RELATIONS === */
+        .relation-form {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+        }
+        
+        .relation-form .form-group { margin-bottom: 0; }
+        .relation-form select { min-width: 180px; }
+
+        .relations-list { display: flex; flex-direction: column; gap: 10px; }
+        
+        .relation-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: var(--radius);
+            border-left: 4px solid var(--primary);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .label-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: white;
+        }
+        
+        .relation-arrow { color: #999; font-size: 1.2rem; }
+        .relation-description { flex-grow: 1; color: #666; font-style: italic; }
+        
+        .relation-delete {
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 1.5rem;
+            padding: 5px;
+        }
+        .relation-delete:hover { color: var(--danger); }
+
+        /* === STATISTICS === */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 20px;
+            border-radius: var(--radius);
+            text-align: center;
+        }
+        
+        .stat-card.green { background: linear-gradient(135deg, var(--success), #388E3C); }
+        .stat-card.orange { background: linear-gradient(135deg, var(--warning), #F57C00); }
+        
+        .stat-value { font-size: 2.5rem; font-weight: 700; }
+        .stat-label { font-size: 0.9rem; opacity: 0.9; }
+
+        .chart-bar { display: flex; align-items: center; margin-bottom: 12px; }
+        .chart-label { width: 140px; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+        
+        .chart-bar-bg {
+            flex-grow: 1;
+            height: 30px;
+            background: #f0f0f0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 0 15px;
+        }
+        
+        .chart-bar-fill {
+            height: 100%;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 10px;
+            color: white;
+            font-size: 0.85rem;
+            transition: width 0.5s;
+        }
+        
+        .chart-count { width: 40px; text-align: right; font-weight: 600; color: #666; }
+
+        /* === VISUALIZATION === */
+        .document-view {
+            padding: 30px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            line-height: 2;
+            font-size: 1.05rem;
+        }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: var(--radius);
+        }
+        
+        .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+        .legend-color { width: 20px; height: 20px; border-radius: 4px; }
+
+        .relations-diagram {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: var(--radius);
+        }
+        
+        .diagram-title { font-weight: 600; margin-bottom: 15px; }
+        
+        .diagram-node {
+            display: inline-flex;
+            padding: 8px 16px;
+            border-radius: 20px;
+            color: white;
+            font-size: 0.9rem;
+            margin: 5px;
+        }
+
+        /* === DOCUMENTS === */
+        .documents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        
+        .document-card {
+            background: white;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .document-card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.1); transform: translateY(-2px); }
+        
+        .document-icon { font-size: 2.5rem; margin-bottom: 10px; }
+        .document-name { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; }
+        .document-meta { font-size: 0.85rem; color: #888; }
+        
+        .document-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .document-actions .btn { flex: 1; justify-content: center; padding: 8px; font-size: 0.85rem; }
+
+        /* === MODAL === */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+        
+        .modal-overlay.active { display: flex; }
+        
+        .modal {
+            background: white;
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .modal-title { font-size: 1.2rem; font-weight: 600; }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .modal-body { padding: 20px; }
+        
+        .modal-footer {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .modal .form-group input,
+        .modal .form-group select,
+        .modal .form-group textarea { width: 100%; }
+
+        /* === COLOR PICKER === */
+        .color-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+        
+        .color-option {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .color-option:hover { transform: scale(1.1); }
+        .color-option.selected { border-color: #333; box-shadow: 0 0 0 2px white, 0 0 0 4px #333; }
+
+        /* === CONTEXT MENU === */
+        .context-menu {
+            position: fixed;
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 8px 0;
+            min-width: 200px;
+            display: none;
+            z-index: 1500;
+        }
+        
+        .context-menu.active { display: block; }
+        
+        .context-menu-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .context-menu-item:hover { background: #f5f5f5; }
+        .context-menu-divider { height: 1px; background: var(--border); margin: 5px 0; }
+
+        /* === NOTIFICATION === */
+        .notification {
+            position: fixed;
+            bottom: 30px; right: 30px;
+            padding: 15px 25px;
+            background: #333;
+            color: white;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 3000;
+        }
+        
+        .notification.show { transform: translateY(0); opacity: 1; }
+        .notification.success { background: var(--success); }
+        .notification.error { background: var(--danger); }
+        .notification.warning { background: var(--warning); }
+        .notification.info { background: var(--primary); }
+
+        /* === EMPTY STATE === */
+        .empty-state { text-align: center; padding: 60px 20px; color: #999; }
+        .empty-state-icon { font-size: 4rem; margin-bottom: 15px; opacity: 0.5; }
+
+        /* === RESPONSIVE === */
+        .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        .sidebar-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            z-index: 850;
+        }
+        
+        .sidebar-overlay.active { display: block; }
+
+        @media (max-width: 992px) {
+            .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+            .sidebar.open { transform: translateX(0); }
+            .content-area { margin-left: 0; }
+            .menu-toggle { display: block; }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 span { display: none; }
+            .header-btn span { display: none; }
+            .tabs { flex-direction: column; }
+            .relation-form { flex-direction: column; }
+            .relation-form select { min-width: 100%; }
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+
+        .file-input { display: none; }
+    </style>
+</head>
+<body>
+    <!-- HEADER -->
+    <header class="header">
+        <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+        <h1>📝 <span>Инструмент за анотиране на документи</span></h1>
+        <div class="header-actions">
+            <button class="header-btn primary" onclick="showNewDocModal()">➕ <span>Нов</span></button>
+            <button class="header-btn secondary" onclick="document.getElementById('fileInput').click()">📂 <span>Отвори</span></button>
+            <button class="header-btn secondary" onclick="saveDocument()">💾 <span>Запази</span></button>
+            <button class="header-btn secondary" onclick="exportDoc()">📤 <span>Експорт</span></button>
+        </div>
+    </header>
+
+    <input type="file" id="fileInput" class="file-input" accept=".txt,.docx,.pdf" onchange="handleFile(event)">
+    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+    <!-- MAIN -->
+    <div class="main-container">
+        <!-- SIDEBAR -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">🏷️ Етикети <button onclick="showLabelModal()">+</button></h3>
+                <ul class="label-list" id="labelList"></ul>
+            </div>
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">ℹ️ Помощ</h3>
+                <p style="font-size: 0.85rem; color: #90a4ae;">
+                    1. Изберете етикет<br>
+                    2. Маркирайте текст<br>
+                    3. Кликнете "Анотирай"
+                </p>
+            </div>
+        </aside>
+
+        <!-- CONTENT -->
+        <main class="content-area">
+            <!-- TABS -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('editor')" data-tab="editor">✏️ Редактор</button>
+                <button class="tab-btn" onclick="switchTab('documents')" data-tab="documents">📄 Документи</button>
+                <button class="tab-btn" onclick="switchTab('relations')" data-tab="relations">🔗 Връзки</button>
+                <button class="tab-btn" onclick="switchTab('statistics')" data-tab="statistics">📊 Статистика</button>
+                <button class="tab-btn" onclick="switchTab('visualization')" data-tab="visualization">👁️ Визуализация</button>
+            </div>
+
+            <!-- EDITOR TAB -->
+            <div class="tab-container active" id="editorTab">
+                <div class="card">
+                    <div class="editor-toolbar">
+                        <button class="toolbar-btn" onclick="annotateSelected()">🏷️ Анотирай</button>
+                        <button class="toolbar-btn" onclick="clearAnnotations()">🗑️ Изчисти</button>
+                        <button class="toolbar-btn" onclick="saveDocument()">💾 Запази</button>
+                    </div>
+                    <div class="text-editor" id="textEditor" contenteditable="true">
+                        <p>Добре дошли в инструмента за анотиране!</p>
+                        <p>Можете да заредите документ (.txt, .docx) или да пишете директно тук.</p>
+                        <p>За да анотирате: изберете етикет отляво, маркирайте текст и натиснете "Анотирай".</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DOCUMENTS TAB -->
+            <div class="tab-container" id="documentsTab">
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">📄 Документи</h2>
+                        <button class="btn btn-primary" onclick="showNewDocModal()">➕ Нов</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="documents-grid" id="documentsGrid"></div>
+                        <div class="empty-state" id="noDocuments" style="display:none;">
+                            <div class="empty-state-icon">📭</div>
+                            <p>Няма документи</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RELATIONS TAB -->
+            <div class="tab-container" id="relationsTab">
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">🔗 Връзки между етикети</h2></div>
+                    <div class="card-body">
+                        <div class="relation-form">
+                            <div class="form-group">
+                                <label>От етикет:</label>
+                                <select id="relFrom"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Към етикет:</label>
+                                <select id="relTo"></select>
+                            </div>
+                            <div class="form-group" style="flex-grow:1;">
+                                <label>Описание:</label>
+                                <input type="text" id="relDesc" placeholder="Пояснение...">
+                            </div>
+                            <button class="btn btn-primary" onclick="addRelation()">➕ Добави</button>
+                        </div>
+                        <div class="relations-list" id="relationsList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STATISTICS TAB -->
+            <div class="tab-container" id="statisticsTab">
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">📊 Статистика</h2></div>
+                    <div class="card-body">
+                        <div class="stats-grid">
+                            <div class="stat-card"><div class="stat-value" id="statDocs">0</div><div class="stat-label">Документи</div></div>
+                            <div class="stat-card green"><div class="stat-value" id="statLabels">0</div><div class="stat-label">Етикети</div></div>
+                            <div class="stat-card orange"><div class="stat-value" id="statAnnotations">0</div><div class="stat-label">Анотации</div></div>
+                            <div class="stat-card"><div class="stat-value" id="statRelations">0</div><div class="stat-label">Връзки</div></div>
+                        </div>
+                        <h3 style="margin-bottom:15px;">📈 Най-използвани етикети</h3>
+                        <div id="labelsChart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISUALIZATION TAB -->
+            <div class="tab-container" id="visualizationTab">
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">👁️ Визуализация</h2></div>
+                    <div class="card-body">
+                        <div class="document-view" id="docView"></div>
+                        <div class="legend" id="legend"></div>
+                        <div class="relations-diagram">
+                            <h4 class="diagram-title">🔗 Връзки:</h4>
+                            <div id="diagramContent"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- CONTEXT MENU -->
+    <div class="context-menu" id="contextMenu">
+        <div id="contextLabels"></div>
+    </div>
+
+    <!-- LABEL MODAL -->
+    <div class="modal-overlay" id="labelModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="labelModalTitle">Нов етикет</h3>
+                <button class="modal-close" onclick="closeLabelModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Име:</label>
+                    <input type="text" id="labelName">
+                </div>
+                <div class="form-group">
+                    <label>Родител:</label>
+                    <select id="labelParent"><option value="">-- Няма --</option></select>
+                </div>
+                <div class="form-group">
+                    <label>Цвят:</label>
+                    <div class="color-picker" id="colorPicker"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeLabelModal()">Отказ</button>
+                <button class="btn btn-primary" onclick="saveLabel()">Запази</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW DOC MODAL -->
+    <div class="modal-overlay" id="newDocModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Нов документ</h3>
+                <button class="modal-close" onclick="closeNewDocModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Име:</label>
+                    <input type="text" id="docName">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeNewDocModal()">Отказ</button>
+                <button class="btn btn-primary" onclick="createDoc()">Създай</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIFICATION -->
+    <div class="notification" id="notification">
+        <span id="notifIcon">✓</span>
+        <span id="notifText"></span>
+    </div>
+
+    <script>
+        // ============================================================
+        // ГЛОБАЛНИ ДАННИ
+        // ============================================================
+        
+        const COLORS = ['#f44336','#e91e63','#9c27b0','#673ab7','#3f51b5','#2196f3','#03a9f4','#00bcd4','#009688','#4caf50','#8bc34a','#ff9800','#ff5722','#795548','#607d8b'];
+        
+        let state = {
+            labels: [],
+            relations: [],
+            documents: [],
+            currentDocId: null,
+            selectedLabelId: null,
+            editLabelId: null,
+            selectedColor: COLORS[0]
+        };
+
+        // ============================================================
+        // ИНИЦИАЛИЗАЦИЯ
+        // ============================================================
+        
+        function init() {
+            loadState();
+            renderColorPicker();
+            if (state.labels.length === 0) addDefaultLabels();
+            renderLabels();
+            renderDocuments();
+            updateRelationSelects();
+            renderRelations();
+            updateStats();
+            
+            document.addEventListener('click', e => {
+                if (!document.getElementById('contextMenu').contains(e.target))
+                    document.getElementById('contextMenu').classList.remove('active');
+            });
+        }
+
+        function addDefaultLabels() {
+            const defaults = [
+                {name:'Важно',color:'#f44336'},
+                {name:'Информация',color:'#2196f3'},
+                {name:'Въпрос',color:'#ff9800'},
+                {name:'Отговор',color:'#4caf50'},
+                {name:'Дата',color:'#607d8b'},
+                {name:'Име',color:'#9c27b0'}
+            ];
+            defaults.forEach(d => {
+                state.labels.push({id: genId(), name: d.name, color: d.color, parentId: null, count: 0});
+            });
+            saveState();
+        }
+
+        // ============================================================
+        // STORAGE
+        // ============================================================
+        
+        function saveState() {
+            localStorage.setItem('annot_labels', JSON.stringify(state.labels));
+            localStorage.setItem('annot_relations', JSON.stringify(state.relations));
+            localStorage.setItem('annot_documents', JSON.stringify(state.documents));
+        }
+
+        function loadState() {
+            try {
+                const l = localStorage.getItem('annot_labels');
+                const r = localStorage.getItem('annot_relations');
+                const d = localStorage.getItem('annot_documents');
+                if (l) state.labels = JSON.parse(l);
+                if (r) state.relations = JSON.parse(r);
+                if (d) state.documents = JSON.parse(d);
+            } catch(e) { console.error(e); }
+        }
+
+        function genId() {
+            return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2,9);
+        }
+
+        // ============================================================
+        // ЕТИКЕТИ
+        // ============================================================
+        
+        function showLabelModal(id = null) {
+            state.editLabelId = id;
+            document.getElementById('labelModalTitle').textContent = id ? 'Редактирай' : 'Нов етикет';
+            
+            if (id) {
+                const lbl = state.labels.find(l => l.id === id);
+                document.getElementById('labelName').value = lbl.name;
+                document.getElementById('labelParent').value = lbl.parentId || '';
+                state.selectedColor = lbl.color;
+            } else {
+                document.getElementById('labelName').value = '';
+                document.getElementById('labelParent').value = '';
+                state.selectedColor = COLORS[0];
+            }
+            
+            updateParentSelect(id);
+            updateColorSelection();
+            document.getElementById('labelModal').classList.add('active');
+        }
+
+        function closeLabelModal() {
+            document.getElementById('labelModal').classList.remove('active');
+        }
+
+        function saveLabel() {
+            const name = document.getElementById('labelName').value.trim();
+            if (!name) { notify('Въведете име', 'warning'); return; }
+            
+            const parentId = document.getElementById('labelParent').value || null;
+            
+            if (state.editLabelId) {
+                const lbl = state.labels.find(l => l.id === state.editLabelId);
+                lbl.name = name;
+                lbl.color = state.selectedColor;
+                lbl.parentId = parentId;
+            } else {
+                state.labels.push({id: genId(), name, color: state.selectedColor, parentId, count: 0});
+            }
+            
+            saveState();
+            renderLabels();
+            updateRelationSelects();
+            closeLabelModal();
+            notify('Етикетът е запазен', 'success');
+        }
+
+        function deleteLabel(id) {
+            if (!confirm('Изтриване?')) return;
+            state.labels = state.labels.filter(l => l.id !== id && l.parentId !== id);
+            state.relations = state.relations.filter(r => r.fromId !== id && r.toId !== id);
+            saveState();
+            renderLabels();
+            updateRelationSelects();
+            renderRelations();
+            notify('Изтрито', 'success');
+        }
+
+        function selectLabel(id) {
+            state.selectedLabelId = id;
+            renderLabels();
+        }
+
+        function renderLabels() {
+            const container = document.getElementById('labelList');
+            const parents = state.labels.filter(l => !l.parentId);
+            container.innerHTML = parents.map(l => renderLabelItem(l)).join('');
+            updateContextMenu();
+        }
+
+        function renderLabelItem(label) {
+            const sel = state.selectedLabelId === label.id;
+            const children = state.labels.filter(l => l.parentId === label.id);
+            
+            let html = `
+                <li class="label-item ${sel ? 'selected' : ''}" onclick="selectLabel('${label.id}')">
+                    <span class="label-color" style="background:${label.color}"></span>
+                    <span class="label-name">${label.name}</span>
+                    <span class="label-count">${label.count}</span>
+                    <div class="label-actions">
+                        <button class="label-action-btn" onclick="event.stopPropagation();showLabelModal('${label.id}')">✏️</button>
+                        <button class="label-action-btn delete" onclick="event.stopPropagation();deleteLabel('${label.id}')">🗑️</button>
+                    </div>
+                </li>
+            `;
+            
+            if (children.length) {
+                html += '<ul class="label-children">' + children.map(c => renderLabelItem(c)).join('') + '</ul>';
+            }
+            return html;
+        }
+
+        function updateParentSelect(excludeId) {
+            const sel = document.getElementById('labelParent');
+            const parents = state.labels.filter(l => !l.parentId && l.id !== excludeId);
+            sel.innerHTML = '<option value="">-- Няма --</option>' + parents.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+        }
+
+        // ============================================================
+        // COLOR PICKER
+        // ============================================================
+        
+        function renderColorPicker() {
+            document.getElementById('colorPicker').innerHTML = COLORS.map(c => 
+                `<div class="color-option ${c === state.selectedColor ? 'selected' : ''}" style="background:${c}" onclick="pickColor('${c}')" data-color="${c}"></div>`
+            ).join('');
+        }
+
+        function pickColor(c) {
+            state.selectedColor = c;
+            updateColorSelection();
+        }
+
+        function updateColorSelection() {
+            document.querySelectorAll('.color-option').forEach(el => {
+                el.classList.toggle('selected', el.dataset.color === state.selectedColor);
+            });
+        }
+
+        // ============================================================
+        // АНОТИРАНЕ
+        // ============================================================
+        
+        function annotateSelected() {
+            if (!state.selectedLabelId) { notify('Изберете етикет', 'warning'); return; }
+            
+            const sel = window.getSelection();
+            const text = sel.toString().trim();
+            if (!text) { notify('Маркирайте текст', 'warning'); return; }
+            
+            const label = state.labels.find(l => l.id === state.selectedLabelId);
+            const range = sel.getRangeAt(0);
+            const span = document.createElement('span');
+            span.className = 'annotation';
+            span.style.backgroundColor = label.color + '40';
+            span.style.borderBottom = '2px solid ' + label.color;
+            span.dataset.labelId = label.id;
+            span.title = label.name;
+            
+            const tooltip = document.createElement('span');
+            tooltip.className = 'annotation-tooltip';
+            tooltip.textContent = label.name;
+            
+            try {
+                range.surroundContents(span);
+                span.appendChild(tooltip);
+            } catch(e) {
+                const frag = range.extractContents();
+                span.appendChild(frag);
+                span.appendChild(tooltip);
+                range.insertNode(span);
+            }
+            
+            label.count++;
+            sel.removeAllRanges();
+            saveState();
+            renderLabels();
+            updateStats();
+            notify('Анотирано: ' + label.name, 'success');
+        }
+
+        function clearAnnotations() {
+            if (!confirm('Изчистване на всички анотации?')) return;
+            
+            const editor = document.getElementById('textEditor');
+            editor.querySelectorAll('.annotation').forEach(ann => {
+                const text = ann.textContent.replace(ann.querySelector('.annotation-tooltip')?.textContent || '', '');
+                ann.replaceWith(document.createTextNode(text));
+            });
+            
+            state.labels.forEach(l => l.count = 0);
+            saveState();
+            renderLabels();
+            updateStats();
+            notify('Изчистено', 'success');
+        }
+
+        function updateContextMenu() {
+            document.getElementById('contextLabels').innerHTML = state.labels.map(l => 
+                `<div class="context-menu-item" onclick="annotateWith('${l.id}')"><span class="label-color" style="background:${l.color};width:14px;height:14px"></span>${l.name}</div>`
+            ).join('');
+        }
+
+        function annotateWith(id) {
+            state.selectedLabelId = id;
+            renderLabels();
+            annotateSelected();
+            document.getElementById('contextMenu').classList.remove('active');
+        }
+
+        // ============================================================
+        // ДОКУМЕНТИ
+        // ============================================================
+        
+        function showNewDocModal() {
+            document.getElementById('docName').value = '';
+            document.getElementById('newDocModal').classList.add('active');
+        }
+
+        function closeNewDocModal() {
+            document.getElementById('newDocModal').classList.remove('active');
+        }
+
+        function createDoc() {
+            const name = document.getElementById('docName').value.trim();
+            if (!name) { notify('Въведете име', 'warning'); return; }
+            
+            const doc = {
+                id: genId(),
+                name: name,
+                content: '',
+                html: '',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString()
+            };
+            
+            state.documents.push(doc);
+            state.currentDocId = doc.id;
+            document.getElementById('textEditor').innerHTML = '<p>Започнете да пишете...</p>';
+            
+            saveState();
+            renderDocuments();
+            closeNewDocModal();
+            switchTab('editor');
+            updateStats();
+            notify('Документът е създаден', 'success');
+        }
+
+        function saveDocument() {
+            const editor = document.getElementById('textEditor');
+            
+            if (state.currentDocId) {
+                const doc = state.documents.find(d => d.id === state.currentDocId);
+                if (doc) {
+                    doc.content = editor.innerText;
+                    doc.html = editor.innerHTML;
+                    doc.updated = new Date().toISOString();
+                }
+            } else {
+                const doc = {
+                    id: genId(),
+                    name: 'Документ ' + (state.documents.length + 1),
+                    content: editor.innerText,
+                    html: editor.innerHTML,
+                    created: new Date().toISOString(),
+                    updated: new Date().toISOString()
+                };
+                state.documents.push(doc);
+                state.currentDocId = doc.id;
+            }
+            
+            saveState();
+            renderDocuments();
+            updateStats();
+            notify('Запазено', 'success');
+        }
+
+        function loadDoc(id) {
+            const doc = state.documents.find(d => d.id === id);
+            if (!doc) return;
+            
+            state.currentDocId = id;
+            document.getElementById('textEditor').innerHTML = doc.html || doc.content || '';
+            switchTab('editor');
+            notify('Заредено: ' + doc.name, 'success');
+        }
+
+        function deleteDoc(id) {
+            if (!confirm('Изтриване?')) return;
+            state.documents = state.documents.filter(d => d.id !== id);
+            if (state.currentDocId === id) {
+                state.currentDocId = null;
+                document.getElementById('textEditor').innerHTML = '<p>Изберете документ...</p>';
+            }
+            saveState();
+            renderDocuments();
+            updateStats();
+            notify('Изтрито', 'success');
+        }
+
+        function renderDocuments() {
+            const grid = document.getElementById('documentsGrid');
+            const empty = document.getElementById('noDocuments');
+            
+            if (!state.documents.length) {
+                grid.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+            
+            grid.style.display = 'grid';
+            empty.style.display = 'none';
+            
+            grid.innerHTML = state.documents.map(d => {
+                const date = new Date(d.updated).toLocaleDateString('bg-BG');
+                return `
+                    <div class="document-card" onclick="loadDoc('${d.id}')">
+                        <div class="document-icon">📄</div>
+                        <div class="document-name">${d.name}</div>
+                        <div class="document-meta">📅 ${date}</div>
+                        <div class="document-actions" onclick="event.stopPropagation()">
+                            <button class="btn btn-secondary" onclick="loadDoc('${d.id}')">✏️ Редактирай</button>
+                            <button class="btn btn-danger" onclick="deleteDoc('${d.id}')">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const fileName = file.name.toLowerCase();
+            const fileExtension = fileName.split('.').pop();
+            
+            // Показваме индикатор за зареждане
+            notify('Зареждане на файл...', 'info');
+            
+            if (fileExtension === 'txt') {
+                // Обработка на TXT файлове
+                handleTextFile(file);
+            } else if (fileExtension === 'docx') {
+                // Обработка на DOCX файлове
+                handleDocxFile(file);
+            } else if (fileExtension === 'pdf') {
+                // Обработка на PDF файлове
+                handlePdfFile(file);
+            } else {
+                notify('Неподдържан формат. Използвайте .txt, .docx или .pdf', 'error');
+            }
+            
+            e.target.value = '';
+        }
+        
+        // Обработка на TXT файлове
+        function handleTextFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const content = ev.target.result;
+                createDocument(file.name, content);
+            };
+            reader.onerror = function() {
+                notify('Грешка при четене на файла', 'error');
+            };
+            reader.readAsText(file);
+        }
+        
+        // Обработка на DOCX файлове
+        async function handleDocxFile(file) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                
+                // DOCX файловете съдържат текста в word/document.xml
+                const documentXml = await zip.file('word/document.xml').async('string');
+                
+                // Извличаме текста от XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
+                
+                // Намираме всички текстови елементи
+                const textElements = xmlDoc.getElementsByTagName('w:t');
+                const paragraphElements = xmlDoc.getElementsByTagName('w:p');
+                
+                // Извличаме текст по параграфи
+                let paragraphs = [];
+                let currentParagraph = '';
+                
+                for (const p of paragraphElements) {
+                    const texts = p.getElementsByTagName('w:t');
+                    let paragraphText = '';
+                    for (const t of texts) {
+                        paragraphText += t.textContent || '';
+                    }
+                    if (paragraphText.trim()) {
+                        paragraphs.push(paragraphText.trim());
+                    }
+                }
+                
+                const content = paragraphs.join('\n\n');
+                
+                if (content.trim()) {
+                    createDocument(file.name, content);
+                } else {
+                    notify('Файлът е празен или не може да бъде прочетен', 'warning');
+                }
+            } catch (error) {
+                console.error('Грешка при обработка на DOCX:', error);
+                notify('Грешка при обработка на DOCX файла: ' + error.message, 'error');
+            }
+        }
+        
+        // Обработка на PDF файлове
+        async function handlePdfFile(file) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                
+                let fullText = [];
+                
+                // Извличаме текст от всяка страница
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    
+                    // Комбинираме текстовите елементи
+                    const pageText = textContent.items
+                        .map(item => item.str)
+                        .join(' ');
+                    
+                    if (pageText.trim()) {
+                        fullText.push(pageText);
+                    }
+                }
+                
+                const content = fullText.join('\n\n');
+                
+                if (content.trim()) {
+                    createDocument(file.name, content);
+                } else {
+                    notify('PDF файлът е празен или съдържа само изображения', 'warning');
+                }
+            } catch (error) {
+                console.error('Грешка при обработка на PDF:', error);
+                notify('Грешка при обработка на PDF файла: ' + error.message, 'error');
+            }
+        }
+        
+        // Създаване на документ от извлечен текст
+        function createDocument(fileName, content) {
+            const doc = {
+                id: genId(),
+                name: fileName.replace(/\.[^/.]+$/, ''),
+                content: content,
+                html: '<p>' + content.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>') + '</p>',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString()
+            };
+            
+            state.documents.push(doc);
+            state.currentDocId = doc.id;
+            document.getElementById('textEditor').innerHTML = doc.html;
+            
+            saveState();
+            renderDocuments();
+            updateStats();
+            switchTab('editor');
+            notify('Заредено: ' + fileName, 'success');
+        }
+
+        function exportDoc() {
+            const editor = document.getElementById('textEditor');
+            const name = state.currentDocId ? state.documents.find(d => d.id === state.currentDocId)?.name || 'document' : 'document';
+            
+            const blob = new Blob([`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${name}</title><style>body{font-family:Arial;padding:40px;line-height:1.8}.annotation{padding:2px 4px;border-radius:3px}</style></head><body><h1>${name}</h1><hr>${editor.innerHTML}</body></html>`], {type:'text/html'});
+            
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name + '.html';
+            a.click();
+            
+            notify('Експортирано', 'success');
+        }
+
+        // ============================================================
+        // ВРЪЗКИ
+        // ============================================================
+        
+        function updateRelationSelects() {
+            const opts = '<option value="">-- Изберете --</option>' + state.labels.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+            document.getElementById('relFrom').innerHTML = opts;
+            document.getElementById('relTo').innerHTML = opts;
+        }
+
+        function addRelation() {
+            const from = document.getElementById('relFrom').value;
+            const to = document.getElementById('relTo').value;
+            const desc = document.getElementById('relDesc').value.trim();
+            
+            if (!from || !to) { notify('Изберете етикети', 'warning'); return; }
+            if (from === to) { notify('Различни етикети', 'warning'); return; }
+            if (state.relations.some(r => r.fromId === from && r.toId === to)) { notify('Връзката съществува', 'warning'); return; }
+            
+            state.relations.push({id: genId(), fromId: from, toId: to, description: desc});
+            
+            document.getElementById('relFrom').value = '';
+            document.getElementById('relTo').value = '';
+            document.getElementById('relDesc').value = '';
+            
+            saveState();
+            renderRelations();
+            updateStats();
+            notify('Връзката е добавена', 'success');
+        }
+
+        function deleteRelation(id) {
+            state.relations = state.relations.filter(r => r.id !== id);
+            saveState();
+            renderRelations();
+            updateStats();
+            notify('Изтрито', 'success');
+        }
+
+        function renderRelations() {
+            const container = document.getElementById('relationsList');
+            
+            if (!state.relations.length) {
+                container.innerHTML = '<p style="color:#999;text-align:center;padding:20px">Няма връзки</p>';
+                return;
+            }
+            
+            container.innerHTML = state.relations.map(r => {
+                const from = state.labels.find(l => l.id === r.fromId);
+                const to = state.labels.find(l => l.id === r.toId);
+                if (!from || !to) return '';
+                
+                return `
+                    <div class="relation-item">
+                        <span class="label-badge" style="background:${from.color}">${from.name}</span>
+                        <span class="relation-arrow">→</span>
+                        <span class="label-badge" style="background:${to.color}">${to.name}</span>
+                        ${r.description ? `<span class="relation-description">"${r.description}"</span>` : ''}
+                        <button class="relation-delete" onclick="deleteRelation('${r.id}')">×</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ============================================================
+        // СТАТИСТИКА
+        // ============================================================
+        
+        function updateStats() {
+            document.getElementById('statDocs').textContent = state.documents.length;
+            document.getElementById('statLabels').textContent = state.labels.length;
+            document.getElementById('statRelations').textContent = state.relations.length;
+            document.getElementById('statAnnotations').textContent = state.labels.reduce((s, l) => s + l.count, 0);
+            
+            renderChart();
+        }
+
+        function renderChart() {
+            const sorted = [...state.labels].sort((a, b) => b.count - a.count);
+            const max = Math.max(...sorted.map(l => l.count), 1);
+            
+            if (!sorted.length || max === 0) {
+                document.getElementById('labelsChart').innerHTML = '<p style="color:#999;text-align:center">Няма данни</p>';
+                return;
+            }
+            
+            document.getElementById('labelsChart').innerHTML = sorted.slice(0, 8).map(l => `
+                <div class="chart-bar">
+                    <div class="chart-label"><span style="background:${l.color};width:12px;height:12px;border-radius:3px;display:inline-block"></span> ${l.name}</div>
+                    <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${(l.count/max)*100}%;background:${l.color}">${l.count || ''}</div></div>
+                    <div class="chart-count">${l.count}</div>
+                </div>
+            `).join('');
+        }
+
+        // ============================================================
+        // ВИЗУАЛИЗАЦИЯ
+        // ============================================================
+        
+        function updateVisualization() {
+            document.getElementById('docView').innerHTML = document.getElementById('textEditor').innerHTML;
+            
+            const used = state.labels.filter(l => l.count > 0);
+            document.getElementById('legend').innerHTML = used.length ? used.map(l => 
+                `<div class="legend-item"><span class="legend-color" style="background:${l.color}"></span>${l.name} (${l.count})</div>`
+            ).join('') : '<p style="color:#999">Няма анотации</p>';
+            
+            document.getElementById('diagramContent').innerHTML = state.relations.length ? state.relations.map(r => {
+                const from = state.labels.find(l => l.id === r.fromId);
+                const to = state.labels.find(l => l.id === r.toId);
+                if (!from || !to) return '';
+                return `<div style="margin:10px 0;display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+                    <span class="diagram-node" style="background:${from.color}">${from.name}</span>
+                    <span style="color:#666">→</span>
+                    <span class="diagram-node" style="background:${to.color}">${to.name}</span>
+                    ${r.description ? `<span style="color:#888;font-style:italic">(${r.description})</span>` : ''}
+                </div>`;
+            }).join('') : '<p style="color:#999">Няма връзки</p>';
+        }
+
+        // ============================================================
+        // НАВИГАЦИЯ
+        // ============================================================
+        
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-container').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            document.getElementById(tab + 'Tab').classList.add('active');
+            document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+            
+            if (tab === 'statistics') updateStats();
+            if (tab === 'visualization') updateVisualization();
+            if (tab === 'relations') { updateRelationSelects(); renderRelations(); }
+            if (tab === 'documents') renderDocuments();
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.querySelector('.sidebar-overlay').classList.toggle('active');
+        }
+
+        function notify(msg, type = 'success') {
+            const n = document.getElementById('notification');
+            const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+            document.getElementById('notifIcon').textContent = icons[type] || '✓';
+            document.getElementById('notifText').textContent = msg;
+            n.className = 'notification ' + type;
+            setTimeout(() => n.classList.add('show'), 10);
+            setTimeout(() => n.classList.remove('show'), 3000);
+        }
+
+        // ============================================================
+        // КЛАВИШИ
+        // ============================================================
+        
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveDocument(); }
+            if (e.key === 'Escape') { closeLabelModal(); closeNewDocModal(); }
+        });
+
+        // ============================================================
+        // СТАРТ
+        // ============================================================
+        
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
